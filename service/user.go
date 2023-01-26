@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	pb "github.com/mirasildev/medium_user_service/genproto/user_service"
 	"github.com/mirasildev/medium_user_service/storage/repo"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -17,12 +20,14 @@ type UserService struct {
 	pb.UnimplementedUserServiceServer
 	storage  storage.StorageI
 	inMemory storage.InMemoryStorageI
+	logger   *logrus.Logger
 }
 
-func NewUserService(strg storage.StorageI, inMemory storage.InMemoryStorageI) *UserService {
+func NewUserService(strg storage.StorageI, inMemory storage.InMemoryStorageI, logger *logrus.Logger) *UserService {
 	return &UserService{
 		storage:  strg,
 		inMemory: inMemory,
+		logger:   logger,
 	}
 }
 
@@ -39,7 +44,8 @@ func (s *UserService) Create(ctx context.Context, req *pb.User) (*pb.User, error
 		Type:            req.Type,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		s.logger.WithError(err).Error("failed to create user")
+		return nil, status.Errorf(codes.Internal, "failed to create: %v", err)
 	}
 
 	return parseUserModel(user), nil
@@ -48,7 +54,11 @@ func (s *UserService) Create(ctx context.Context, req *pb.User) (*pb.User, error
 func (s *UserService) Get(ctx context.Context, req *pb.IdRequest) (*pb.User, error) {
 	user, err := s.storage.User().Get(req.Id)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			s.logger.WithError(err).Error("failed to get user")
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get: %v", err)
 	}
 
 	return parseUserModel(user), nil
@@ -57,7 +67,10 @@ func (s *UserService) Get(ctx context.Context, req *pb.IdRequest) (*pb.User, err
 func (s *UserService) GetByEmail(ctx context.Context, req *pb.GetByEmailRequest) (*pb.User, error) {
 	user, err := s.storage.User().GetByEmail(req.Email)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to get by email: %v", err)
 	}
 
 	return parseUserModel(user), nil
@@ -70,7 +83,8 @@ func (s *UserService) GetAll(ctx context.Context, req *pb.GetAllUsersRequest) (*
 		Search: req.Search,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		s.logger.WithError(err).Error("failed to get all user")
+		return nil, status.Errorf(codes.Internal, "failed to get all users: %v", err)
 	}
 
 	response := pb.GetAllUsersResponse{
@@ -85,27 +99,37 @@ func (s *UserService) GetAll(ctx context.Context, req *pb.GetAllUsersRequest) (*
 	return &response, nil
 }
 
-func (s *UserService) Update(ctx context.Context, req *pb.User) (*pb.User, error) {
+func (s *UserService) Update(ctx context.Context, req *pb.UpdateUserRequest) (*pb.UpdateUserResponse, error) {
+
 	user, err := s.storage.User().Update(&repo.User{
 		ID:              req.Id,
 		FirstName:       req.FirstName,
 		LastName:        req.LastName,
 		PhoneNumber:     req.PhoneNumber,
-		Email:           req.Email,
 		Gender:          req.Gender,
+		Username:        req.Username,
 		ProfileImageUrl: req.ProfileImageUrl,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		s.logger.WithError(err).Error("failed to update user")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, status.Errorf(codes.NotFound, err.Error())
+		}
+		return nil, status.Errorf(codes.Internal, "failed to update: %v", err)
 	}
 
-	return parseUserModel(user), nil
+	return &pb.UpdateUserResponse{
+		Email:     user.Email,
+		Type:      user.Type,
+		CreatedAt: user.CreatedAt.Format(time.RFC3339),
+	}, nil
 }
 
 func (s *UserService) Delete(ctx context.Context, req *pb.IdRequest) (*emptypb.Empty, error) {
 	err := s.storage.User().Delete(req.Id)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Internal server error: %v", err)
+		s.logger.WithError(err).Error("failed to delete user")
+		return nil, status.Errorf(codes.Internal, "failed to delete: %v", err)
 	}
 
 	return &emptypb.Empty{}, nil

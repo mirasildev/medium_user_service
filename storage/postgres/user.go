@@ -204,7 +204,7 @@ func (ur *userRepo) Update(user *repo.User) (*repo.User, error) {
 		WHERE id=$7
 		RETURNING email, type, created_at
 	`
-
+	var res repo.User
 	err := ur.db.QueryRow(
 		query,
 		user.FirstName,
@@ -215,15 +215,15 @@ func (ur *userRepo) Update(user *repo.User) (*repo.User, error) {
 		user.ProfileImageUrl,
 		user.ID,
 	).Scan(
-		&user.Email,
-		&user.Type,
-		&user.CreatedAt,
+		&res.Email,
+		&res.Type,
+		&res.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return user, nil
+	return &res, nil
 }
 
 func (ur *userRepo) Delete(id int64) error {

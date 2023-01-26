@@ -5,10 +5,10 @@ import (
 	"log"
 	"net"
 
-	pb "github.com/mirasildev/medium_user_service/genproto/user_service"
 	"github.com/go-redis/redis/v9"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+	pb "github.com/mirasildev/medium_user_service/genproto/user_service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -17,6 +17,7 @@ import (
 	"github.com/mirasildev/medium_user_service/storage"
 
 	grpcPkg "github.com/mirasildev/medium_user_service/pkg/grpc_client"
+	"github.com/mirasildev/medium_user_service/pkg/logger"
 )
 
 func main() {
@@ -46,9 +47,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to get grpc connections: %v", err)
 	}
+	logrus := logger.New()
 
-	userService := service.NewUserService(strg, inMemory)
-	authService := service.NewAuthService(strg, inMemory, grpcConn, &cfg)
+	userService := service.NewUserService(strg, inMemory, logrus)
+	authService := service.NewAuthService(strg, inMemory, grpcConn, &cfg, logrus)
 
 	lis, err := net.Listen("tcp", cfg.GrpcPort)
 	if err != nil {
